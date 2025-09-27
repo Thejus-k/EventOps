@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, Send, History, X } from 'lucide-react';
+import { Bot, Send,History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -7,25 +7,66 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useApp } from '@/contexts/AppContext';
 
+// ❗ DEMO-ONLY — exposes your key to anyone with DevTools. Do NOT ship.
+const GROQ_API_KEY = 'gsk_...YOUR_REAL_KEY...';
+
 export function AIAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
   const { state, dispatch } = useApp();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || sending) return;
 
-    // Add to AI logs
+    const query = input.trim();
+    setInput('');
+    setSending(true);
+
+    const id = crypto.randomUUID?.() ?? String(Date.now());
+
+    // 1) Add log immediately (optimistic)
     dispatch({
       type: 'ADD_AI_LOG',
-      payload: {
-        timestamp: new Date().toISOString(),
-        query: input.trim()
-      }
+      payload: { id, timestamp: new Date().toISOString(), query, answer: 'Thinking…' }
     });
 
-    setInput('');
+    try {
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'llama3-8b-8192',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an experienced Event Manager. Answer every query in a professional tone using only 2-4 concise bullet points.',
+            },
+            { role: 'user', content: query },
+          ],
+          temperature: 0.3,
+        }),
+      });
+
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error?.message || `HTTP ${r.status}`);
+
+      const content = data?.choices?.[0]?.message?.content ?? '';
+      // 2) Update log with answer
+      dispatch({ type: 'UPDATE_AI_LOG', payload: { id, answer: content || '(no content)' } });
+    } catch (err: any) {
+      dispatch({
+        type: 'UPDATE_AI_LOG',
+        payload: { id, answer: `Error: ${err?.message || 'Unknown error'}` },
+      });
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -68,13 +109,14 @@ export function AIAssistant() {
               </div>
 
               <form onSubmit={handleSubmit} className="flex gap-2">
-                <Input 
+                <Input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Ask your event management question..."
                   className="flex-1"
+                  disabled={sending}
                 />
-                <Button type="submit" size="icon" variant="gradient">
+                <Button type="submit" size="icon" variant="gradient" disabled={sending}>
                   <Send className="w-4 h-4" />
                 </Button>
               </form>
@@ -90,13 +132,16 @@ export function AIAssistant() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {state.aiLogs.map((log) => (
+                    {state.aiLogs.map((log: { id: string; query: string; answer?: string; timestamp: string }) => (
                       <div key={log.id} className="bg-card rounded-lg p-3 shadow-soft">
                         <div className="flex items-start gap-3">
                           <Bot className="w-4 h-4 text-primary mt-1 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium mb-1">{log.query}</p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-sm font-medium mb-1">Q: {log.query}</p>
+                            {log.answer && (
+                              <p className="text-sm whitespace-pre-wrap">A: {log.answer}</p>
+                            )}
+                            <p className="text-xs text-muted-foreground mt-1">
                               {new Date(log.timestamp).toLocaleString()}
                             </p>
                           </div>
