@@ -1,5 +1,7 @@
 # EventOps
 
+Deployed in : https://event-ops-xasg.vercel.app/
+
 EventOps is a web-based platform for managing and streamlining event
 operations.\
 This repository contains the frontend code built with **Vite**,
@@ -106,3 +108,4 @@ request.
 
 This project is licensed under the MIT License -- see the
 [LICENSE](LICENSE) file for details.
+
